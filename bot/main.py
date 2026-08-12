@@ -44,6 +44,27 @@ async def lifespan(bot: Bot, dp: Dispatcher):
     dp["scheduler"] = scheduler
     bot["scheduler"] = scheduler
     
+    # Register bot commands with Telegram (appears in menu)
+    from aiogram.types import BotCommand
+    commands = [
+        BotCommand(command="start", description="🏠 Start bot & see welcome"),
+        BotCommand(command="help", description="📖 Show all commands"),
+        BotCommand(command="brief", description="🌅 Morning briefing"),
+        BotCommand(command="spent", description="💰 Log expense"),
+        BotCommand(command="report", description="📊 Expense report with chart"),
+        BotCommand(command="habit", description="🎯 Manage habits"),
+        BotCommand(command="done", description="✅ Mark habit complete"),
+        BotCommand(command="habits", description="📅 Habit streak grid + chart"),
+        BotCommand(command="remind", description="⏰ Set reminder"),
+        BotCommand(command="reminders", description="📋 List active reminders"),
+        BotCommand(command="cancel", description="❌ Cancel reminder by ID"),
+        BotCommand(command="capture", description="📝 Save to Notion"),
+        BotCommand(command="review", description="🌙 Evening review"),
+        BotCommand(command="settings", description="⚙️ Configure integrations"),
+    ]
+    await bot.set_my_commands(commands)
+    logger.info("Bot commands registered")
+    
     yield
     
     # Shutdown

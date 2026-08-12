@@ -15,6 +15,24 @@ class SetupStates(StatesGroup):
     waiting_sheets_id = State()
     waiting_timezone = State()
 
+# ===== Bot Menu Commands (for Telegram BotFather) =====
+BOT_COMMANDS = [
+    ("start", "🏠 Start bot & see welcome"),
+    ("help", "📖 Show all commands"),
+    ("brief", "🌅 Morning briefing (weather, tasks, habits)"),
+    ("spent", "💰 Log expense (e.g. /spent 120 coffee)"),
+    ("report", "📊 Expense report with chart (week/month)"),
+    ("habit", "🎯 Manage habits (add/list)"),
+    ("done", "✅ Mark habit complete"),
+    ("habits", "📅 Habit streak grid + chart"),
+    ("remind", "⏰ Set reminder (e.g. /remind 10m \"Call\")"),
+    ("reminders", "📋 List active reminders"),
+    ("cancel", "❌ Cancel reminder by ID"),
+    ("capture", "📝 Save to Notion (or forward any msg)"),
+    ("review", "🌙 Evening review (mood + win + improve)"),
+    ("settings", "⚙️ Configure Notion, Sheets, Timezone"),
+]
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, session):
     user = await get_or_create_user(session, message.from_user.id, message.from_user.username)
@@ -22,17 +40,13 @@ async def cmd_start(message: Message, session):
     text = (
         f"👋 Welcome to <b>LifeOS</b>, {message.from_user.first_name}!\n\n"
         "Your personal daily operating system on Telegram.\n\n"
-        "<b>Quick commands:</b>\n"
-        "📊 <code>/brief</code> — Morning briefing (weather, calendar, tasks, news)\n"
-        "💰 <code>/spent 120 coffee</code> — Log expense\n"
-        "📈 <code>/report week</code> — Expense report with chart\n"
-        "🎯 <code>/habit add \"Run\"</code> — Create habit\n"
-        "✅ <code>/done \"Run\"</code> — Mark habit complete\n"
-        "📅 <code>/habits</code> — Visual streak grid\n"
-        "⏰ <code>/remind 10m \"Call mom\"</code> — Set reminder\n"
-        "📝 <code>/capture \"Idea\"</code> — Save to Notion\n"
-        "🌙 <code>/review</code> — Daily evening review\n"
-        "⚙️ <code>/settings</code> — Configure integrations\n\n"
+        "<b>🚀 Quick Start:</b>\n"
+        "1️⃣ <code>/settings</code> — Connect Notion & Google Sheets\n"
+        "2️⃣ <code>/brief</code> — See morning briefing\n"
+        "3️⃣ <code>/spent 120 coffee</code> — Log first expense\n"
+        "4️⃣ <code>/habit add</code> — Create a habit\n"
+        "5️⃣ <code>/remind 10m \"Test\"</code> — Set a reminder\n\n"
+        "<b>📋 All Commands:</b> Use <code>/help</code> for full list.\n\n"
         "Forward any message to save it to Notion automatically."
     )
     
@@ -43,7 +57,52 @@ async def cmd_start(message: Message, session):
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, session):
-    await cmd_start(message, session)
+    user = await get_or_create_user(session, message.from_user.id)
+    
+    text = (
+        "<b>📖 LifeOS — All Commands</b>\n\n"
+        "<b>🏠 Basics</b>\n"
+        "  /start — Welcome & quick start\n"
+        "  /help — This message\n"
+        "  /settings — Configure integrations\n\n"
+        "<b>💰 Expenses</b>\n"
+        "  /spent 120 coffee — Log ₹120 (cat: food)\n"
+        "  /spent 500 uber --cat transport\n"
+        "  /report week — Last 7 days + chart\n"
+        "  /report month — Last 30 days + chart\n\n"
+        "<b>🎯 Habits</b>\n"
+        "  /habit add — Create habit (interactive)\n"
+        "  /habit list — List all habits\n"
+        "  /done \"Run\" — Mark habit complete\n"
+        "  /habits — Streak grid + chart (90 days)\n\n"
+        "<b>⏰ Reminders</b>\n"
+        "  /remind 10m \"Call mom\" — In 10 min\n"
+        "  /remind 2h \"Meeting\" — In 2 hours\n"
+        "  /remind tomorrow 9am \"Standup\"\n"
+        "  /remind every friday 5pm \"Report\"\n"
+        "  /reminders — List all active\n"
+        "  /cancel 3 — Cancel reminder #3\n\n"
+        "<b>📝 Capture & Review</b>\n"
+        "  /capture \"Idea\" — Save to Notion\n"
+        "  (Forward any message to capture)\n"
+        "  /review — Evening review (mood + win)\n\n"
+        "<b>🌅 Daily Briefing</b>\n"
+        "  /brief — Morning brief (weather, tasks)\n\n"
+        "<b>⚙️ Settings</b>\n"
+        "  /settings — Notion, Sheets, Timezone\n"
+    )
+    
+    if user.notion_token or user.google_sheets_id:
+        text += (
+            f"\n<b>📦 Your Setup:</b>\n"
+            f"  Notion: {'✅' if user.notion_token else '❌'}\n"
+            f"  Sheets: {'✅' if user.google_sheets_id else '❌'}\n"
+            f"  Timezone: {user.timezone}"
+        )
+    
+    text += "\n\n<i>💡 Tip: Forward any message to save it instantly!</i>"
+    
+    await message.answer(text)
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, session):
@@ -135,9 +194,8 @@ async def cb_setup_timezone(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("tz_"))
 async def cb_set_timezone(callback: CallbackQuery, state: FSMContext, session):
-    tz_raw = callback.data[3:]  # Remove "tz_" prefix
+    tz_raw = callback.data[3:]
     
-    # Map short codes to full timezone names
     tz_map = {
         "india": "Asia/Kolkata",
         "utc": "UTC",
