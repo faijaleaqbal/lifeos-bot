@@ -28,7 +28,7 @@ logger.add(
 logger.add(lambda msg: print(msg, end=""), level=settings.log_level)
 
 @asynccontextmanager
-async def lifespan(dp: Dispatcher):
+async def lifespan(bot: Bot, dp: Dispatcher):
     # Startup
     logger.info("Starting LifeOS Bot...")
     await init_db()
@@ -36,12 +36,13 @@ async def lifespan(dp: Dispatcher):
     
     # Setup scheduler
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
-    await setup_scheduler(scheduler, dp.bot)
+    await setup_scheduler(scheduler, bot)
     scheduler.start()
     logger.info("Scheduler started")
     
-    # Store scheduler in dp for access in handlers
+    # Store scheduler in dp and bot for access in handlers
     dp["scheduler"] = scheduler
+    bot["scheduler"] = scheduler
     
     yield
     

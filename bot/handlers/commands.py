@@ -170,20 +170,4 @@ async def process_custom_timezone(message: Message, state: FSMContext, session):
     await message.answer(f"✅ Timezone set to <b>{tz}</b>!\n\nUse /settings to verify.", reply_markup=get_settings_keyboard())
     await state.clear()
 
-# ===== Cancel FSM =====
-@router.message(Command("cancel"))
-@router.callback_query(F.data == "cancel")
-async def cancel_handler(event, state: FSMContext):
-    current = await state.get_state()
-    if current is None:
-        if isinstance(event, Message):
-            await event.answer("Nothing to cancel.")
-        else:
-            await event.answer("Nothing to cancel.")
-        return
-    
-    await state.clear()
-    if isinstance(event, Message):
-        await event.answer("❌ Cancelled. Use /settings to try again.")
-    else:
-        await event.message.edit_text("❌ Cancelled. Use /settings to try again.")
+# Note: /cancel command is handled in reminders.py (handles both FSM cancel + reminder cancel)

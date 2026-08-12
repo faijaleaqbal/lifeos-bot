@@ -174,3 +174,20 @@ async def cmd_habits(message: Message, session, state: FSMContext):
         text += f" (🏆 best: {h.streak_longest})\n\n"
     
     await message.answer(text)
+    
+    # Generate habit grid chart
+    from datetime import date, timedelta
+    from bot.services.charts import generate_habit_grid
+    
+    completions_by_habit = {}
+    habit_names = []
+    for h in habits:
+        dates = await get_habit_completions(session, h.id, days=90)
+        completions_by_habit[h.id] = set(dates)
+        habit_names.append(h.name)
+    
+    chart_buf = await generate_habit_grid(completions_by_habit, habit_names)
+    if chart_buf:
+        from aiogram.types import BufferedInputFile
+        photo = BufferedInputFile(chart_buf.read(), filename="habits_grid.png")
+        await message.answer_photo(photo, caption="🎯 Habit completion grid (90 days)")

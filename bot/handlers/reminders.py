@@ -1,4 +1,5 @@
 import re
+import logging
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import Message
@@ -7,7 +8,9 @@ from aiogram.fsm.context import FSMContext
 
 from bot.database.crud import get_or_create_user, add_reminder, get_active_reminders, deactivate_reminder
 from bot.keyboards.inline import get_reminder_cancel_keyboard
+from bot.config import settings
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 def parse_time(text: str):
@@ -111,6 +114,36 @@ async def cmd_remind(message: Message, session, state: FSMContext):
     job_id = str(uuid.uuid4())
     reminder = await add_reminder(session, user.id, reminder_text, trigger_at, cron, job_id)
     
+    # Add to APScheduler live
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+    from bot.services.scheduler import fire_reminder
+    
+    scheduler = message.bot.get("scheduler")
+    if scheduler:
+        if cron:
+            try:
+                scheduler.add_job(
+                    fire_reminder,
+                    CronTrigger.from_crontab(cron, timezone=settings.timezone),
+                    args=[message.bot, user.id, reminder_text, reminder.id],
+                    id=f"reminder_{reminder.id}",
+                    replace_existing=True,
+                )
+            except Exception as e:
+                logger.error(f"Live scheduler add failed: {e}")
+        else:
+            try:
+                scheduler.add_job(
+                    fire_reminder,
+                    DateTrigger(run_date=trigger_at, timezone=settings.timezone),
+                    args=[message.bot, user.id, reminder_text, reminder.id],
+                    id=f"reminder_{reminder.id}",
+                    replace_existing=True,
+                )
+            except Exception as e:
+                logger.error(f"Live scheduler add failed: {e}")
+    
     if cron:
         await message.answer(
             f"✅ <b>Recurring reminder set!</b>\n\n"
@@ -153,14 +186,30 @@ async def cmd_cancel_reminder(message: Message, session, state: FSMContext):
     
     args = message.text.replace("/cancel", "", 1).strip()
     
-    if not args.isdigit():
-        await message.answer("❌ Usage: <code>/cancel 3</code> (use the reminder ID from <code>/reminders</code>)")
+    # If numeric — cancel a reminder
+    if args.isdigit():
+        reminder_id = int(args)
+        success = await deactivate_reminder(session, reminder_id)
+        
+        # Remove from scheduler
+        scheduler = message.bot.get("scheduler")
+        if scheduler:
+            try:
+                scheduler.remove_job(f"reminder_{reminder_id}")
+            except Exception:
+                pass  # Job may not exist
+        
+        if success:
+            await message.answer(f"✅ Reminder #{reminder_id} cancelled.")
+        else:
+            await message.answer(f"❌ Reminder #{reminder_id} not found.")
         return
     
-    reminder_id = int(args)
-    success = await deactivate_reminder(session, reminder_id)
+    # Otherwise — cancel FSM
+    current = await state.get_state()
+    if current is None:
+        await message.answer("Nothing to cancel. Use /cancel <reminder_id> to cancel a reminder.")
+        return
     
-    if success:
-        await message.answer(f"✅ Reminder #{reminder_id} cancelled.")
-    else:
-        await message.answer(f"❌ Reminder #{reminder_id} not found.")
+    await state.clear()
+    await message.answer("❌ Cancelled.")

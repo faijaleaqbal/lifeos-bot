@@ -1,11 +1,13 @@
 import re
 from datetime import date
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, BufferedInputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
 from bot.database.crud import get_or_create_user, add_expense, get_expense_summary_by_category, get_expenses_week, get_expenses_month
+from bot.services.sheets import append_expense_row
+from bot.services.charts import generate_expense_chart
 
 router = Router()
 
@@ -13,12 +15,8 @@ CATEGORIES = ["food", "transport", "shopping", "subscriptions", "bills", "other"
 
 @router.message(Command("spent"))
 async def cmd_spent(message: Message, session, state: FSMContext):
-    # Cancel any ongoing FSM
     await state.clear()
-    
     user = await get_or_create_user(session, message.from_user.id)
-    
-    # Parse: /spent 120 coffee  OR  /spent 500 uber --cat transport
     args = message.text.replace("/spent", "", 1).strip()
     
     if not args:
@@ -31,7 +29,6 @@ async def cmd_spent(message: Message, session, state: FSMContext):
         )
         return
     
-    # Extract category with --cat flag
     category = "other"
     cat_match = re.search(r'--cat\s+(\w+)', args)
     if cat_match:
@@ -42,7 +39,6 @@ async def cmd_spent(message: Message, session, state: FSMContext):
         await message.answer(f"❌ Invalid category. Use: {', '.join(CATEGORIES)}")
         return
     
-    # Extract amount (first number)
     parts = args.split(None, 1)
     if not parts or not parts[0].isdigit():
         await message.answer("❌ Please provide amount first. Example: <code>/spent 120 coffee</code>")
@@ -54,30 +50,39 @@ async def cmd_spent(message: Message, session, state: FSMContext):
     # Store in paise
     expense = await add_expense(session, user.id, amount * 100, category, description)
     
+    # Sync to Google Sheets if configured
+    sheets_status = ""
+    if user.google_sheets_id:
+        success = await append_expense_row(
+            user.google_sheets_id, amount * 100, category, description, str(expense.date)
+        )
+        sheets_status = "\n📊 Synced to Google Sheets!" if success else "\n⚠️ Google Sheets sync failed"
+    
     await message.answer(
         f"✅ <b>Expense logged!</b>\n"
         f"💰 ₹{amount} → <b>{category}</b>\n"
         f"📝 {description}\n"
-        f"📅 {expense.date}\n\n"
+        f"📅 {expense.date}"
+        f"{sheets_status}\n\n"
         f"Use <code>/report week</code> to see summary."
     )
 
 @router.message(Command("report"))
 async def cmd_report(message: Message, session, state: FSMContext):
     await state.clear()
-    
     user = await get_or_create_user(session, message.from_user.id)
-    
     args = message.text.replace("/report", "", 1).strip().lower()
     
     if args == "month":
         expenses = await get_expenses_month(session, user.id)
         summary = await get_expense_summary_by_category(session, user.id, 30)
         period = "Last 30 days"
+        period_code = "month"
     else:
         expenses = await get_expenses_week(session, user.id)
         summary = await get_expense_summary_by_category(session, user.id, 7)
         period = "Last 7 days"
+        period_code = "week"
     
     if not expenses:
         await message.answer(f"📊 {period}: No expenses logged yet.\n\nUse <code>/spent 120 coffee</code> to log.")
@@ -102,3 +107,9 @@ async def cmd_report(message: Message, session, state: FSMContext):
         text += f"  • ₹{amt} {e.category} — {e.description or 'no desc'} ({e.date})\n"
     
     await message.answer(text)
+    
+    # Generate and send pie chart
+    chart_buf = await generate_expense_chart(summary, period_code)
+    if chart_buf:
+        photo = BufferedInputFile(chart_buf.read(), filename="expense_chart.png")
+        await message.answer_photo(photo, caption=f"📊 Expense breakdown — {period}")
