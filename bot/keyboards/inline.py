@@ -6,6 +6,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="📝 Connect Notion", callback_data="setup_notion")
     builder.button(text="📊 Connect Google Sheets", callback_data="setup_sheets")
     builder.button(text="🌍 Set Timezone", callback_data="setup_timezone")
+    builder.button(text="❌ Cancel", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 

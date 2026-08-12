@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -13,6 +13,7 @@ class SetupStates(StatesGroup):
     waiting_notion_token = State()
     waiting_notion_db = State()
     waiting_sheets_id = State()
+    waiting_timezone = State()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, session):
@@ -41,26 +42,28 @@ async def cmd_start(message: Message, session):
     await message.answer(text)
 
 @router.message(Command("help"))
-async def cmd_help(message: Message):
-    await cmd_start(message, None)
+async def cmd_help(message: Message, session):
+    await cmd_start(message, session)
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message, session):
     user = await get_or_create_user(session, message.from_user.id)
     
-    status = []
-    status.append(f"🟢 Notion: {'Connected' if user.notion_token else 'Not connected'}")
-    status.append(f"🟢 Google Sheets: {'Connected' if user.google_sheets_id else 'Not connected'}")
-    status.append(f"🟢 Timezone: {user.timezone}")
+    notion_status = "✅ Connected" if user.notion_token else "❌ Not connected"
+    sheets_status = "✅ Connected" if user.google_sheets_id else "❌ Not connected"
+    tz_status = f"🌍 {user.timezone}"
     
     text = (
         "<b>⚙️ Settings</b>\n\n"
-        + "\n".join(status)
-        + "\n\nTap a button to configure:"
+        f"📝 Notion: {notion_status}\n"
+        f"📊 Google Sheets: {sheets_status}\n"
+        f"{tz_status}\n\n"
+        "Tap a button to configure:"
     )
     
     await message.answer(text, reply_markup=get_settings_keyboard())
 
+# ===== Notion Setup =====
 @router.callback_query(F.data == "setup_notion")
 async def cb_setup_notion(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
@@ -86,9 +89,10 @@ async def process_notion_db(message: Message, state: FSMContext, session):
     user = await get_or_create_user(session, message.from_user.id)
     user.notion_db_id = message.text.strip()
     await session.commit()
-    await message.answer("✅ Notion connected! Use /settings to verify.")
+    await message.answer("✅ Notion connected! Use /settings to verify.", reply_markup=get_settings_keyboard())
     await state.clear()
 
+# ===== Google Sheets Setup =====
 @router.callback_query(F.data == "setup_sheets")
 async def cb_setup_sheets(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
@@ -107,5 +111,79 @@ async def process_sheets_id(message: Message, state: FSMContext, session):
     user = await get_or_create_user(session, message.from_user.id)
     user.google_sheets_id = message.text.strip()
     await session.commit()
-    await message.answer("✅ Google Sheets connected! Make sure credentials file is in place.")
+    await message.answer("✅ Google Sheets connected! Use /settings to verify.", reply_markup=get_settings_keyboard())
     await state.clear()
+
+# ===== Timezone Setup =====
+@router.callback_query(F.data == "setup_timezone")
+async def cb_setup_timezone(callback: CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇮🇳 India (IST)", callback_data="tz_india")],
+        [InlineKeyboardButton(text="🇺🇸 UTC", callback_data="tz_utc")],
+        [InlineKeyboardButton(text="🇬🇧 London (GMT)", callback_data="tz_london")],
+        [InlineKeyboardButton(text="🇺🇸 New York (EST)", callback_data="tz_newyork")],
+        [InlineKeyboardButton(text="🇦🇪 Dubai (GST)", callback_data="tz_dubai")],
+        [InlineKeyboardButton(text="🇸🇬 Singapore (SGT)", callback_data="tz_singapore")],
+        [InlineKeyboardButton(text="⌨️ Type custom", callback_data="tz_custom")],
+    ])
+    await callback.message.edit_text(
+        "🌍 <b>Select your timezone:</b>\n\n"
+        "Or type a custom timezone (e.g. <code>Asia/Kolkata</code>):",
+        reply_markup=kb
+    )
+    await state.set_state(SetupStates.waiting_timezone)
+
+@router.callback_query(F.data.startswith("tz_"))
+async def cb_set_timezone(callback: CallbackQuery, state: FSMContext, session):
+    tz_raw = callback.data[3:]  # Remove "tz_" prefix
+    
+    # Map short codes to full timezone names
+    tz_map = {
+        "india": "Asia/Kolkata",
+        "utc": "UTC",
+        "london": "Europe/London",
+        "newyork": "America/New_York",
+        "dubai": "Asia/Dubai",
+        "singapore": "Asia/Singapore",
+        "custom": "custom",
+    }
+    
+    tz = tz_map.get(tz_raw, tz_raw)
+    
+    if tz == "custom":
+        await callback.message.answer("⌨️ Send me your timezone (e.g. <code>Asia/Kolkata</code>):")
+        await state.set_state(SetupStates.waiting_timezone)
+        return
+    
+    user = await get_or_create_user(session, callback.from_user.id)
+    user.timezone = tz
+    await session.commit()
+    await callback.message.edit_text(f"✅ Timezone set to <b>{tz}</b>!\n\nUse /settings to verify.")
+    await state.clear()
+
+@router.message(SetupStates.waiting_timezone)
+async def process_custom_timezone(message: Message, state: FSMContext, session):
+    tz = message.text.strip()
+    user = await get_or_create_user(session, message.from_user.id)
+    user.timezone = tz
+    await session.commit()
+    await message.answer(f"✅ Timezone set to <b>{tz}</b>!\n\nUse /settings to verify.", reply_markup=get_settings_keyboard())
+    await state.clear()
+
+# ===== Cancel FSM =====
+@router.message(Command("cancel"))
+@router.callback_query(F.data == "cancel")
+async def cancel_handler(event, state: FSMContext):
+    current = await state.get_state()
+    if current is None:
+        if isinstance(event, Message):
+            await event.answer("Nothing to cancel.")
+        else:
+            await event.answer("Nothing to cancel.")
+        return
+    
+    await state.clear()
+    if isinstance(event, Message):
+        await event.answer("❌ Cancelled. Use /settings to try again.")
+    else:
+        await event.message.edit_text("❌ Cancelled. Use /settings to try again.")
