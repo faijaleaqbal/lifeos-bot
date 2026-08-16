@@ -10,6 +10,19 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
+def get_service_account_email() -> str:
+    """Get the client_email from the service account credentials file."""
+    try:
+        creds_file = settings.google_sheets_credentials_file
+        if creds_file.exists():
+            import json
+            with open(creds_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('client_email', '')
+    except Exception as e:
+        logger.error(f"Failed to read service account email: {e}")
+    return ''
+
 def _get_service():
     """Create Google Sheets service (sync — called in thread executor)."""
     creds = Credentials.from_service_account_file(

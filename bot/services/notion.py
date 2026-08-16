@@ -10,6 +10,27 @@ def _get_client(token: str):
     """Create Notion client with user's token."""
     return Client(auth=token)
 
+def _verify_notion_db_sync(token: str, database_id: str):
+    """Retrieve database metadata to verify access and return title."""
+    client = _get_client(token)
+    db = client.databases.retrieve(database_id=database_id)
+    title_objs = db.get("title", [])
+    title = "".join([t.get("plain_text", "") for t in title_objs]) if title_objs else "Untitled Database"
+    return title
+
+async def verify_notion_access(token: str, database_id: str):
+    """
+    Verify Notion token and database_id asynchronously.
+    Returns (success: bool, title_or_error: str)
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        title = await loop.run_in_executor(None, _verify_notion_db_sync, token, database_id)
+        return True, title
+    except Exception as e:
+        logger.error(f"Notion verification failed: {e}")
+        return False, str(e)
+
 def _create_page_sync(token: str, database_id: str, title: str, content: str = "", tags: list = None):
     """Create a page in Notion database (sync)."""
     client = _get_client(token)
@@ -67,11 +88,11 @@ async def create_notion_page(token: str, database_id: str, title: str, content: 
         logger.error(f"Notion page creation failed: {e}")
         return None
 
-def _search_pages_sync(token: str, query: str):
+def _search_pages_sync(token: str, database_id: str, query: str):
     """Search pages in Notion (sync)."""
     client = _get_client(token)
     results = client.databases.query(
-        database_id=settings.notion_database_id,
+        database_id=database_id,
         filter={
             "property": "Name",
             "title": {"contains": query}
@@ -83,7 +104,7 @@ async def search_notion(token: str, database_id: str, query: str):
     """Search Notion pages asynchronously. Returns list of (title, url)."""
     try:
         loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(None, _search_pages_sync, token, query)
+        results = await loop.run_in_executor(None, _search_pages_sync, token, database_id, query)
         
         pages = []
         for page in results[:5]:

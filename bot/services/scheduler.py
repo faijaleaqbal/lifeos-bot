@@ -109,24 +109,36 @@ async def setup_scheduler(scheduler: AsyncIOScheduler, bot):
 async def send_morning_brief(bot, session_maker):
     """Send morning brief to all users."""
     from datetime import datetime
+    from bot.services.news import get_tech_news, format_news
     
     async with session_maker() as session:
         result = await session.execute(select(User))
         users = result.scalars().all()
+        
+        news = await get_tech_news()
         
         for user in users:
             try:
                 now = datetime.now()
                 text = f"📊 <b>Good Morning! — {now.strftime('%A, %B %d')}</b>\n\n"
                 
-                # Weather
-                weather = await get_weather()
-                if weather:
-                    text += format_weather(weather) + "\n\n"
+                # Weather per user
+                has_custom_city = bool(user.city and user.city.strip())
+                city_to_fetch = user.city if has_custom_city else settings.weather_city
+                weather = await get_weather(city=city_to_fetch)
+                weather_text = format_weather(weather)
+                if not has_custom_city:
+                    weather_text += "\n   <i>💡 Set your city with /setcity <city name> for personalized weather.</i>"
+                
+                text += weather_text + "\n\n"
                 
                 text += "📅 Check your calendar\n"
                 text += "📝 Set your top 3 tasks\n"
                 text += "💪 Complete your habits\n\n"
+                
+                # Tech News
+                text += format_news(news) + "\n\n"
+                
                 text += "Have a productive day! ☀️"
                 
                 await bot.send_message(user.telegram_id, text)

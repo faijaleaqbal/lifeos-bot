@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     openweather_api_key: str = Field(default="", validation_alias="OPENWEATHER_API_KEY")
     weather_city: str = Field(default="Malda,IN", validation_alias="WEATHER_CITY")
     
+    # NewsAPI
+    news_api_key: str = Field(default="", validation_alias="NEWS_API_KEY")
+    
     # Google Calendar
     google_calendar_credentials_file: Path = Field(default=Path("credentials/google_calendar.json"), validation_alias="GOOGLE_CALENDAR_CREDENTIALS_FILE")
     google_calendar_token_file: Path = Field(default=Path("credentials/calendar_token.json"), validation_alias="GOOGLE_CALENDAR_TOKEN_FILE")

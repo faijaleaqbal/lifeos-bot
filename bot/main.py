@@ -50,6 +50,8 @@ async def lifespan(bot: Bot, dp: Dispatcher):
         BotCommand(command="start", description="🏠 Start bot & see welcome"),
         BotCommand(command="help", description="📖 Show all commands"),
         BotCommand(command="brief", description="🌅 Morning briefing"),
+        BotCommand(command="weather", description="🌤 Check current weather"),
+        BotCommand(command="setcity", description="📍 Set city for weather"),
         BotCommand(command="spent", description="💰 Log expense"),
         BotCommand(command="report", description="📊 Expense report with chart"),
         BotCommand(command="habit", description="🎯 Manage habits"),

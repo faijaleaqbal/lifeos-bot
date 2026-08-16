@@ -14,6 +14,7 @@ class User(Base):
     telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     username = Column(Text)
     timezone = Column(Text, default="Asia/Kolkata")
+    city = Column(Text, nullable=True)
     notion_token = Column(Text)
     notion_db_id = Column(Text)
     google_sheets_id = Column(Text)
