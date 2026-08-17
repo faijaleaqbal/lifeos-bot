@@ -42,7 +42,7 @@ async def lifespan(bot: Bot, dp: Dispatcher):
     
     # Store scheduler in dp and bot for access in handlers
     dp["scheduler"] = scheduler
-    bot["scheduler"] = scheduler
+    bot.scheduler = scheduler
     
     # Register bot commands with Telegram (appears in menu)
     from aiogram.types import BotCommand

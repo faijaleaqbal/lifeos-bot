@@ -1,6 +1,7 @@
 import re
 import logging
 from datetime import datetime, timedelta
+import pytz
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
@@ -13,20 +14,33 @@ from bot.config import settings
 logger = logging.getLogger(__name__)
 router = Router()
 
-def parse_time(text: str):
-    """Parse natural language time → (trigger_at, cron_expr or None)"""
+def parse_time(text: str, user_tz_name: str = "Asia/Kolkata"):
+    """Parse natural language time in user's timezone → (trigger_at naive local, cron_expr or None)"""
     text = text.strip().lower()
-    now = datetime.now()
+    try:
+        tz = pytz.timezone(user_tz_name)
+    except Exception:
+        tz = pytz.timezone(settings.timezone)
+        
+    now = datetime.now(tz)
     
     # "10m" or "10min" → minutes from now
     m = re.match(r'^(\d+)\s*m(?:in)?$', text)
     if m:
-        return now + timedelta(minutes=int(m.group(1))), None
+        target = now + timedelta(minutes=int(m.group(1)))
+        return target.replace(tzinfo=None), None
     
     # "2h" or "2hours" → hours from now
     h = re.match(r'^(\d+)\s*h(?:ours?)?$', text)
     if h:
-        return now + timedelta(hours=int(h.group(1))), None
+        target = now + timedelta(hours=int(h.group(1)))
+        return target.replace(tzinfo=None), None
+
+    # "1d" or "2days" or "2d" → days from now
+    d = re.match(r'^(\d+)\s*d(?:ays?)?$', text)
+    if d:
+        target = now + timedelta(days=int(d.group(1)))
+        return target.replace(tzinfo=None), None
     
     # "tomorrow" or "tomorrow 9am"
     if text.startswith("tomorrow"):
@@ -40,8 +54,10 @@ def parse_time(text: str):
                 hour += 12
             if ampm == "am" and hour == 12:
                 hour = 0
-            return tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0), None
-        return tomorrow.replace(hour=9, minute=0, second=0, microsecond=0), None
+            target = tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return target.replace(tzinfo=None), None
+        target = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+        return target.replace(tzinfo=None), None
     
     # "every mon 9am" or "every friday 5pm" → cron
     day_map = {
@@ -66,7 +82,7 @@ def parse_time(text: str):
             if ampm == "am" and hour == 12:
                 hour = 0
             cron = f"{minute} {hour} * * {day_map[day]}"
-            return now, cron
+            return now.replace(tzinfo=None), cron
     
     return None, None
 
@@ -81,23 +97,45 @@ async def cmd_remind(message: Message, session, state: FSMContext):
         await message.answer(
             "⏰ <b>Reminders</b>\n\n"
             "Usage:\n"
-            "<code>/remind 10m \"Call mom\"</code> — 10 min from now\n"
-            "<code>/remind 2h \"Meeting prep\"</code> — 2 hours from now\n"
-            "<code>/remind tomorrow 9am \"Team standup\"</code>\n"
-            "<code>/remind every friday 5pm \"Weekly report\"</code>"
+            "<code>/remind 10m Call mom</code> — 10 min from now\n"
+            "<code>/remind 2h Meeting prep</code> — 2 hours from now\n"
+            "<code>/remind tomorrow 9am Team standup</code>\n"
+            "<code>/remind every friday 5pm Weekly report</code>"
         )
         return
     
-    # Extract quoted message
-    msg_match = re.search(r'"([^"]+)"', text)
-    if not msg_match:
-        await message.answer('❌ Please wrap your reminder text in quotes.\nExample: <code>/remind 10m "Call mom"</code>')
+    # Extract reminder message and time part (supports both quoted and unquoted formats)
+    msg_match = re.search(r'["\'](.*?)["\']', text)
+    if msg_match:
+        reminder_text = msg_match.group(1).strip()
+        time_part = text.replace(msg_match.group(0), "").strip()
+    else:
+        # Check multi-word time patterns first (e.g., 'every friday 5pm', 'tomorrow 9am')
+        multi_word_match = re.match(
+            r'^(every\s+\w+\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|tomorrow(?:\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\s+(.+)$',
+            text,
+            re.IGNORECASE
+        )
+        if multi_word_match:
+            time_part = multi_word_match.group(1).strip()
+            reminder_text = multi_word_match.group(2).strip()
+        else:
+            parts = text.split(maxsplit=1)
+            if len(parts) == 2:
+                time_part = parts[0].strip()
+                reminder_text = parts[1].strip()
+            else:
+                time_part = parts[0].strip()
+                reminder_text = ""
+
+    reminder_text = reminder_text.strip('\'"')
+
+    if not reminder_text:
+        await message.answer("❌ Please provide a reminder message.\nExample: <code>/remind 10m Call mom</code>")
         return
     
-    reminder_text = msg_match.group(1)
-    time_part = text.replace(msg_match.group(0), "").strip()
-    
-    trigger_at, cron = parse_time(time_part)
+    user_tz = user.timezone if (user and user.timezone) else settings.timezone
+    trigger_at, cron = parse_time(time_part, user_tz)
     
     if trigger_at is None:
         await message.answer(
@@ -119,13 +157,13 @@ async def cmd_remind(message: Message, session, state: FSMContext):
     from apscheduler.triggers.date import DateTrigger
     from bot.services.scheduler import fire_reminder
     
-    scheduler = message.bot.get("scheduler")
+    scheduler = getattr(message.bot, "scheduler", None)
     if scheduler:
         if cron:
             try:
                 scheduler.add_job(
                     fire_reminder,
-                    CronTrigger.from_crontab(cron, timezone=settings.timezone),
+                    CronTrigger.from_crontab(cron, timezone=user_tz),
                     args=[message.bot, user.id, reminder_text, reminder.id],
                     id=f"reminder_{reminder.id}",
                     replace_existing=True,
@@ -136,7 +174,7 @@ async def cmd_remind(message: Message, session, state: FSMContext):
             try:
                 scheduler.add_job(
                     fire_reminder,
-                    DateTrigger(run_date=trigger_at, timezone=settings.timezone),
+                    DateTrigger(run_date=trigger_at, timezone=user_tz),
                     args=[message.bot, user.id, reminder_text, reminder.id],
                     id=f"reminder_{reminder.id}",
                     replace_existing=True,
@@ -164,7 +202,7 @@ async def cmd_reminders(message: Message, session, state: FSMContext):
     reminders = await get_active_reminders(session, user.id)
     
     if not reminders:
-        await message.answer("⏰ No active reminders.\n\nUse <code>/remind 10m \"Call mom\"</code> to set one.")
+        await message.answer("⏰ No active reminders.\n\nUse <code>/remind 10m Call mom</code> to set one.")
         return
     
     text = "⏰ <b>Active Reminders</b>\n\n"
@@ -192,7 +230,7 @@ async def cmd_cancel_reminder(message: Message, session, state: FSMContext):
         success = await deactivate_reminder(session, reminder_id)
         
         # Remove from scheduler
-        scheduler = message.bot.get("scheduler")
+        scheduler = getattr(message.bot, "scheduler", None)
         if scheduler:
             try:
                 scheduler.remove_job(f"reminder_{reminder_id}")

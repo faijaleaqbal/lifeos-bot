@@ -61,7 +61,10 @@ async def setup_scheduler(scheduler: AsyncIOScheduler, bot):
                     logger.error(f"Failed to load recurring reminder {rem.id}: {e}")
             else:
                 # One-time reminder — only if in future
-                if rem.trigger_at > datetime.now():
+                import pytz
+                tz = pytz.timezone(settings.timezone)
+                now_local = datetime.now(tz).replace(tzinfo=None)
+                if rem.trigger_at > now_local:
                     scheduler.add_job(
                         fire_reminder,
                         DateTrigger(run_date=rem.trigger_at, timezone=settings.timezone),
