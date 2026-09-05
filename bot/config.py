@@ -1,8 +1,15 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from pathlib import Path
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"
+    )
+
     # Bot
     bot_token: str = Field(..., validation_alias="BOT_TOKEN")
     admin_id: int = Field(..., validation_alias="ADMIN_ID")
@@ -35,10 +42,5 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: Path = Field(default=Path("logs/bot.log"), validation_alias="LOG_FILE")
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
 
 settings = Settings()

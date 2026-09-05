@@ -93,6 +93,13 @@ async def main():
     logger.info("Bot starting polling...")
     try:
         await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Telegram polling error: {e}")
+        if "Unauthorized" in str(e) or "unauthorized" in str(e).lower():
+            logger.critical("CRITICAL: Telegram BOT_TOKEN is unauthorized or revoked! Please update BOT_TOKEN in .env.")
+            await asyncio.sleep(60)
+        else:
+            await asyncio.sleep(5)
     finally:
         await bot.session.close()
 
